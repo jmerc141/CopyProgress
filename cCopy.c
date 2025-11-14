@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -30,31 +31,27 @@
 #define UPDATE_INTERVAL 0.25
 
 // On termnials that support 256 colors
-static const char* RED  = "\033[38;5;160m";
-static const char* BRED = "\033[48;5;52m";
+static const char* colors[] = {
+    "\033[38;5;160m",   //RED 0
+    "\033[48;5;52m",    //BRED 1
+    "\033[38;5;34m",    //GRN 2
+    "\033[48;2;0;30;0m", //BGRN 3
+    "\033[38;5;26m", //BLU 4
+    "\033[48;2;0;0;30m", //BBLU 5
+    "\033[38;5;220m",    //YEL 6
+    "\033[48;5;3m",     //BYEL 7
+    "\033[38;5;91m",    //PURP 8
+    "\033[48;5;53m",    //BPUR 9
+    "\033[38;5;230m",   //GREY 10
+    "\033[48;5;235m",   //BGRY 11
+    "\033[0m",          //END 12
+    "\033[K",           //CLEAR 13
+};
 
-static const char* GRN  = "\033[38;5;34m";
-static const char* BGRN = "\033[48;2;0;30;0m";
 
-static const char* BLU  = "\033[38;5;26m";
-static const char* BBLU = "\033[48;2;0;0;30m";
-
-static const char* YEL  = "\033[38;5;220m";
-static const char* BYEL = "\033[48;5;3m";
-
-static const char* PURP = "\033[38;5;91m";
-static const char* BPUR = "\033[48;5;53m";
-
-static const char* GREY = "\033[38;5;230m";
-static const char* BGRY = "\033[48;5;235m";
-
-static const char* END  = "\033[0m";
-
-//static const char* BLOCKS[] = {"░", "▒", "▓", "█"};
-static const char* BLOCKS[] = {" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-//static const char* BLOCKS[] = {" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
-//static const char* BLOCKS[] = {" ", "╸", "━"}
-static const int NUM_BLOCKS = sizeof(BLOCKS) / sizeof(BLOCKS[0]) - 1;
+//static const int NUM_BLOCKS = sizeof(BLOCKS) / sizeof(BLOCKS[0]) - 1;
+static char** BLOCKS = NULL;
+static int NUM_BLOCKS = 0;
 static unsigned int CHUNK_SIZE = 1024*1024*8;
 
 // Get terminal width
@@ -91,8 +88,8 @@ void progress_bar(double percent, double speed, int bar_width, int m, int s) {
     int full_blocks = filled_steps / NUM_BLOCKS;
     int remainder = filled_steps % NUM_BLOCKS;
     
-    printf("\033[K\r%s%s", BBLU, BLU);
-
+    printf("%s\r%s%s", colors[13], colors[5], colors[4]);
+    
     // Print full blocks
     for (int i = 0; i < full_blocks; i++) {
         printf("%s", BLOCKS[NUM_BLOCKS]);
@@ -109,7 +106,7 @@ void progress_bar(double percent, double speed, int bar_width, int m, int s) {
         printf("%s", BLOCKS[0]);
     }
     
-    printf("%s %s%6.2f%% %s%4.1fMB/s %s%dm%ds %s", END, YEL, percent, RED, speed, PURP, m, s, END);
+    printf("%s %s%6.2f%% %s%4.1fMB/s %s%dm%ds %s", colors[12], colors[6], percent, colors[0], speed, colors[8], m, s, colors[12]);
     fflush(stdout);
 }
 
@@ -241,37 +238,69 @@ void get_basename(const char* path, char* basename) {
     }
 }
 
+void set_blocks(const char *new_list[], int count){
+    for (int i=0; i<NUM_BLOCKS; i++)
+        free(BLOCKS[i]);
+    free(BLOCKS);
+
+    BLOCKS = malloc(count * sizeof(char *));
+    NUM_BLOCKS = count;
+    NUM_BLOCKS = NUM_BLOCKS - 1;
+
+    for (int i=0; i<count; i++)
+        BLOCKS[i] = strdup(new_list[i]);
+}
+
 int main(int argc, char* argv[]) {
-    #ifdef _WIN32
-        SetConsoleOutputCP(CP_UTF8);
-        SetConsoleCP(CP_UTF8);
-    #else
-        
-    #endif
-    
-    if (argc < 2 || argc > 4) {
-        printf("Usage: %s <source> <destination> [-n] (network transfer)\n", argv[0]);
+    if (argc < 2 || argc > 5) {
+        printf("Usage: cProg <source> <destination> [-n] (network transfer) [-old] (no color)\n");
         printf("  Source and destination can be files or directories\n");
         return 1;
     }
 
-    const char* src = argv[1];
-    const char* dst = argv[2];
-    
-    if (argc == 4){
-        const char* n_flag = "-n";
-        const char* ntwrk = argv[3];
-        // 8MB chunk optimal for disk performance
+    const char* n_flag = "-n";
+    const char* old_flag = "-old";
+    boolean old = false;
+    for (int i=2; i<argc; i++){
+        // 8MB  chunk for optimal disk performance
         // 64MB chunk for optimal network performance
-        if (strcmp(n_flag, ntwrk) == 0) {
+        if (strcmp(n_flag, argv[i]) == 0) {
             CHUNK_SIZE = 1024*1024*64;
-        } else {
-            printf("Usage: %s <source> <destination> [-n] (network transfer)\n", argv[0]);
-            printf("  Source and destination can be files or directories\n");
-            return 1;
+        }
+        if (strcmp(old_flag, argv[i]) == 0){
+            old = true;
         }
     }
-    
+
+    if (old){
+        // Set terminal to CP437 instead of unicode codepages
+        // May need to set terminal properties to raster font
+        #ifdef _WIN32
+            SetConsoleOutputCP(437);
+            SetConsoleCP(437);
+        #endif
+        // Set blocks to extended ascii instead of unicode
+        const char* old_blocks[] = {"\xB0", "\xB1", "\xB2", "\xDB"};
+        set_blocks(old_blocks, sizeof(old_blocks) / sizeof(old_blocks[0]));
+        // Remove all ansi colors
+        for (int i=0; i<sizeof(colors) / sizeof(colors[0]); i++){
+            colors[i] = "";
+        }
+        
+    } else {
+        #ifdef _WIN32
+            SetConsoleOutputCP(CP_UTF8);
+            SetConsoleCP(CP_UTF8);
+        #endif
+        //static const char* BLOCKS[] = {"░", "▒", "▓", "█"};
+        const char* new_blocks[] = {" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+        //static const char* BLOCKS[] = {" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
+        //static const char* BLOCKS[] = {" ", "╸", "━"}
+        set_blocks(new_blocks, sizeof(new_blocks) / sizeof(new_blocks[0]));
+    }
+
+    const char* src = argv[1];
+    const char* dst = argv[2];
     
     // Check if source exists
     struct stat src_stat;
@@ -303,6 +332,7 @@ int main(int argc, char* argv[]) {
         }
     } else {
         // Directory copy not implemented in this basic version
+        // TODO: make dir to dir copy
         fprintf(stderr, "Error: Directory copying not implemented yet\n");
         fprintf(stderr, "Please copy files individually\n");
         return 1;

@@ -1,4 +1,4 @@
-import os, sys, shutil, time
+import os, sys, shutil, time, pathlib
 
 # 8MB  - for quicker progress bar response, disk copy
 # 64MB - better speed, less responsive, network copy
@@ -161,17 +161,26 @@ def is_network_location_linux(path):
     if not os.path.ismount(path):
         return False
 
+    return False
+    # TODO fix getting linux fstype
     try:
         # Use statvfs to get filesystem information
-        st = os.statvfs(path)
+        #st = os.statvfs(path)
+        for p in psutil.disk_partitions():
+            if p.mountpoint == '/':
+                root_type = p.fstype
+                continue
+
+            print(p.fstype, root_type)
+            if path.startswith(p.mountpoint):
+                return p.fstype
+            return root_type
         # Check for common network filesystem types
         # This is a simplified check and may not cover all cases
-        if st.f_fstypename in ["nfs", "cifs", "fuse.sshfs"]:
-            return True
-        else:
-            # You might need to parse /etc/mtab for more specific cases
-            # or use external tools like "mount"
-            return False
+        #if st.f_fstypename in ["nfs", "cifs", "fuse.sshfs"]:
+        #    return True
+        #else:
+        #    return False
     except OSError:
         # Handle cases where statvfs might fail (e.g., inaccessible path)
         return False
@@ -229,9 +238,11 @@ if __name__ == "__main__":
         elif not os.path.isdir(src):
             # And dest is a dir
             if os.path.isdir(dst):
-                newFile = dst + "\\" + src.split("\\")[-1]
+                #newFile = dst + "\\" + src.split("\\")[-1]
+                newFile = os.path.join(dst, src.split(os.path.sep)[-1])
+                print(newFile)
                 if not os.path.exists(newFile):
-                    copy_with_progress(src, dst + "\\" + src.split("\\")[-1])
+                    copy_with_progress(src, newFile)
                     #copy_with_progress(src, f"{dst}\\{src.split('\\')[-1]}")
                 else:
                     print(f"File {newFile} already exists")

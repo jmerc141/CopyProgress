@@ -1,4 +1,4 @@
-import os, sys, shutil, time
+import os, sys, shutil, time, pathlib
 
 # 8MB  - for quicker progress bar response, disk copy
 # 64MB - better speed, less responsive, network copy
@@ -24,20 +24,45 @@ colors = {
 "GREY": "\033[38;5;230m",
 "BGRY": "\033[48;5;235m",
 
+"WHTE": "\033[38;2;255;255;255m",
+
 "END": "\033[0m",
 "CLEAR": "\033[K"
 }
 
 #_BLOCKS = ["░", "▒", "▓", "█"]
-#_BLOCKS = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
-_BLOCKS = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
-#_BLOCKS = [" ", "╸", "━"]
-#_BLOCKS = ["\033[38;5;236m━\033[0m", "\033[38;5;34m━\033[0m"]
+_BLOCKS = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+#_BLOCKS = ["█", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+#_BLOCKS = ["━", "╸", "━"]
+
+# Generate gradient colors
+gradient = []
+start_rgb = (0, 50, 255)
+end_rgb = (240, 240, 240)
+steps = 50
+# bias = 1.0: linear gradient
+bias = 3.0
+for i in range(steps):
+    t = i / (steps - 1)
+    t = t ** bias
+    r = int(start_rgb[0] + (end_rgb[0] - start_rgb[0]) * t)
+    g = int(start_rgb[1] + (end_rgb[1] - start_rgb[1]) * t)
+    b = int(start_rgb[2] + (end_rgb[2] - start_rgb[2]) * t)
+    gradient.append(f"\033[38;2;{r};{g};{b}m")
+
+# Add background color to first block
+factor = 0.1
+dr = int(max(0, min(255, start_rgb[0] * factor)))
+dg = int(max(0, min(255, start_rgb[1] * factor)))
+db = int(max(0, min(255, start_rgb[2] * factor)))
+_BLOCKS[0] = f"\033[38;2;{dr};{dg};{db}m{_BLOCKS[0]}"
+
 
 _NUM_BLOCKS = len(_BLOCKS) - 1
 
-bar_width = os.get_terminal_size().columns // 4
+bar_width = os.get_terminal_size().columns // 3
 total_steps = bar_width * _NUM_BLOCKS
+
 
 
 def progress_percentage(perc, speed, eta):
@@ -50,10 +75,20 @@ def progress_percentage(perc, speed, eta):
     full_blocks = filled_steps // _NUM_BLOCKS
     remainder = filled_steps % _NUM_BLOCKS
 
-    if remainder > 0 and full_blocks < bar_width:
-        bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[remainder]}{_BLOCKS[0] * (bar_width - full_blocks - 1)}"
-    else:
-        bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[0] * (bar_width - full_blocks)}"
+    #if remainder > 0 and full_blocks < bar_width:
+    #    bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[remainder]}{_BLOCKS[0] * (bar_width - full_blocks - 1)}"
+    #else:
+    #    bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[0] * (bar_width - full_blocks)}"
+
+    fb = []
+    for i in range(full_blocks):
+        color_idx = int((i / full_blocks) * (len(gradient) - 1))
+        #color_idx = min(color_idx, len(GRADIENT) - 1)
+        fb.append(f"{gradient[color_idx]}{_BLOCKS[-1]}{colors['END']}")
+    #fb = f"{GRADIENT[color_idx]}{_BLOCKS[-1] * full_blocks}{colors['END']}"
+
+    # Print full blocks first, then remainder is the last rising block, then empty spaces with dark blue backgroud
+    bar = f"{"".join(fb)}{colors['WHTE']}{_BLOCKS[remainder]}{colors['END']}{_BLOCKS[0] * (bar_width - full_blocks - 1)}{colors['END']}"
 
     sys.stdout.write(f"\r{bar} ┋ {colors['YEL']}{perc:5.2f}%{colors['END']} ┋ {colors['RED']}{speed}MB/s{colors['END']} ┋ {colors['PURP']}{eta[0]}m {eta[1]}s{colors['END']}{colors['CLEAR']}")
     sys.stdout.flush()
@@ -161,17 +196,26 @@ def is_network_location_linux(path):
     if not os.path.ismount(path):
         return False
 
+    return False
+    # TODO fix getting linux fstype
     try:
         # Use statvfs to get filesystem information
-        st = os.statvfs(path)
+        #st = os.statvfs(path)
+        for p in psutil.disk_partitions():
+            if p.mountpoint == '/':
+                root_type = p.fstype
+                continue
+
+            print(p.fstype, root_type)
+            if path.startswith(p.mountpoint):
+                return p.fstype
+            return root_type
         # Check for common network filesystem types
         # This is a simplified check and may not cover all cases
-        if st.f_fstypename in ["nfs", "cifs", "fuse.sshfs"]:
-            return True
-        else:
-            # You might need to parse /etc/mtab for more specific cases
-            # or use external tools like "mount"
-            return False
+        #if st.f_fstypename in ["nfs", "cifs", "fuse.sshfs"]:
+        #    return True
+        #else:
+        #    return False
     except OSError:
         # Handle cases where statvfs might fail (e.g., inaccessible path)
         return False
@@ -193,10 +237,11 @@ if __name__ == "__main__":
                 colors[c] = ''
         else:
             # Convert block colors
-            c = colors['BLU']
-            b = colors['BBLU']
-            for i in range(len(_BLOCKS)):
-                _BLOCKS[i] = f"{b}{c}{_BLOCKS[i]}{colors['END']}"
+            #c = colors['BLU']
+            #b = colors['BBLU']
+            #for i in range(len(_BLOCKS)):
+            #    _BLOCKS[i] = f"{b}{c}{_BLOCKS[i]}{colors['END']}"
+            pass
             
 
         if sys.platform == "win32":
@@ -229,9 +274,11 @@ if __name__ == "__main__":
         elif not os.path.isdir(src):
             # And dest is a dir
             if os.path.isdir(dst):
-                newFile = dst + "\\" + src.split("\\")[-1]
+                #newFile = dst + "\\" + src.split("\\")[-1]
+                newFile = os.path.join(dst, src.split(os.path.sep)[-1])
+                print(newFile)
                 if not os.path.exists(newFile):
-                    copy_with_progress(src, dst + "\\" + src.split("\\")[-1])
+                    copy_with_progress(src, newFile)
                     #copy_with_progress(src, f"{dst}\\{src.split('\\')[-1]}")
                 else:
                     print(f"File {newFile} already exists")

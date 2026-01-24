@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <math.h>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -48,11 +49,29 @@ static const char* colors[] = {
     "\033[K",           //CLEAR 13
 };
 
+static const int start_rgb[] = {0, 50, 255};
+static const int end_rgb[] = {240, 240, 240};
+#define steps 50
+// bias = 1.0: linear gradient
+#define bias 2.0
+
+static char gradients[100][steps] = {0};
 
 //static const int NUM_BLOCKS = sizeof(BLOCKS) / sizeof(BLOCKS[0]) - 1;
 static char** BLOCKS = NULL;
 static int NUM_BLOCKS = 0;
 static unsigned int CHUNK_SIZE = 1024*1024*8;
+
+void fill_gradient() {
+    for(int i=0; i<=steps; i++){
+        double t = (double)i / (steps - 1);
+        t = pow(t, bias);
+        int r = (int)(start_rgb[0] + (end_rgb[0] - start_rgb[0]) * t);
+        int g = (int)(start_rgb[1] + (end_rgb[1] - start_rgb[1]) * t);
+        int b = (int)(start_rgb[2] + (end_rgb[2] - start_rgb[2]) * t);
+        snprintf(gradients[i], steps, "\033[38;2;%d;%d;%dm", r, g, b);
+    }
+}
 
 // Get terminal width
 int get_terminal_width() {
@@ -92,13 +111,13 @@ void progress_bar(double percent, double speed, int bar_width, int m, int s) {
     
     // Print full blocks
     for (int i = 0; i < full_blocks; i++) {
-        printf("%s", BLOCKS[NUM_BLOCKS]);
+        unsigned int color_idx = (int) ( ((double)i / full_blocks) * (sizeof(gradients) / sizeof(gradients[0])) ) / 2;
+        printf("%s%s", gradients[color_idx], BLOCKS[NUM_BLOCKS]);
     }
     
     // Print partial block
     if (remainder > 0 && full_blocks < bar_width) {
         printf("%s", BLOCKS[remainder]);
-        full_blocks++;
     }
     
     // Print empty blocks
@@ -198,7 +217,7 @@ int copy_file_with_progress(const char* src, const char* dst) {
     }
     
     // Final progress update
-    progress_bar(100.0, speed, bar_width, m, s);
+    progress_bar(100.0, speed/1048576.0, bar_width, m, s);
     double elapsed = get_time() - start;
     printf("\n%.2fMB copied in %.3fs\n", total / 1048576.0, elapsed);
     
@@ -260,7 +279,7 @@ int main(int argc, char* argv[]) {
 
     const char* n_flag = "-n";
     const char* old_flag = "-old";
-    boolean old = false;
+    bool old = false;
     for (int i=2; i<argc; i++){
         // 8MB  chunk for optimal disk performance
         // 64MB chunk for optimal network performance
@@ -297,6 +316,7 @@ int main(int argc, char* argv[]) {
         //static const char* BLOCKS[] = {" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"}
         //static const char* BLOCKS[] = {" ", "╸", "━"}
         set_blocks(new_blocks, sizeof(new_blocks) / sizeof(new_blocks[0]));
+        fill_gradient();
     }
 
     const char* src = argv[1];

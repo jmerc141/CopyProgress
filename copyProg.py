@@ -41,7 +41,7 @@ start_rgb = (0, 50, 255)
 end_rgb = (240, 240, 240)
 steps = 50
 # bias = 1.0: linear gradient
-bias = 3.0
+bias = 2.5
 for i in range(steps):
     t = i / (steps - 1)
     t = t ** bias

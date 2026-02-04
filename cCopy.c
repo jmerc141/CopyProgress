@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <math.h>
@@ -176,7 +177,7 @@ int copy_file_with_progress(const char* src, const char* dst) {
     double speed = 0.0;
     int m = 0;
     int s = 0;
-    int bar_width = get_terminal_width() / 4;
+    int bar_width = get_terminal_width() / 2;
     
     printf("Copying %s -> %s\n", src, dst);
     
@@ -237,6 +238,59 @@ int copy_file_with_progress(const char* src, const char* dst) {
         chmod(dst, st.st_mode);
     }
 #endif
+    return 0;
+}
+
+int dir_copy(const char* src_dir, const char* dst_dir) {
+    DIR* dir = opendir(src_dir);
+    if (!dir) {
+        fprintf(stderr, "Error: Cannot create destination directory\n");
+        return -1;
+    }
+
+    //Create dest dir if it doesn't exist
+    struct stat st;
+    if (stat(dst_dir, &st) != 0) {
+        if (mkdir(dst_dir) != 0) {
+            fprintf(stderr, "Error: Cannot create destination directory: %s\n", dst_dir);
+            closedir(dir);
+            return -1;
+        }
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Build full paths
+        char src_path[1024];
+        char dst_path[1024];
+        snprintf(src_path, sizeof(src_path), "%s%c%s", src_dir, PATH_SEP, entry->d_name);
+        snprintf(dst_path, sizeof(dst_path), "%s%c%s", dst_dir, PATH_SEP, entry->d_name);
+
+        // Check if entry is a directory
+        struct stat entry_stat;
+        if (stat(src_path, &entry_stat) == 0) {
+            if (S_ISDIR(entry_stat.st_mode)) {
+                // Recursively copy subdirectory
+                if (dir_copy(src_path, dst_path) != 0) {
+                    closedir(dir);
+                    return -1;
+                }
+            } else {
+                // Copy file
+                //printf("%s -> %s", src_path, dst_path);
+                if (copy_file_with_progress(src_path, dst_path) != 0) {
+                    closedir(dir);
+                    return -1;
+                }
+            }
+        }
+    }
+
+    closedir(dir);
     return 0;
 }
 
@@ -353,9 +407,7 @@ int main(int argc, char* argv[]) {
     } else {
         // Directory copy not implemented in this basic version
         // TODO: make dir to dir copy
-        fprintf(stderr, "Error: Directory copying not implemented yet\n");
-        fprintf(stderr, "Please copy files individually\n");
-        return 1;
+        dir_copy(src, dst);
     }
     
     return 0;

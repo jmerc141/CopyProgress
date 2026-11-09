@@ -1,4 +1,4 @@
-import os, sys, shutil, time, pathlib
+import os, sys, shutil, time, pathlib, filecmp
 
 # 8MB  - for quicker progress bar response, disk copy
 # 64MB - better speed, less responsive, network copy
@@ -30,8 +30,8 @@ colors = {
 "CLEAR": "\033[K"
 }
 
-_BLOCKS = ["░", "▒", "▓", "█"]
-#_BLOCKS = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
+#_BLOCKS = ["░", "▒", "▓", "█"]
+_BLOCKS = ["█", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"]
 #_BLOCKS = ["█", "\033[0;38;5;39;49m█", "\033[0;38;5;74;49m█", "\033[0;38;5;109;49m█", "\033[0;38;5;144;49m█", "\033[0;38;5;179;49m█", \
 #    "\033[0;38;5;214;49m█", "\033[0;38;5;178;49m█", "\033[0;38;5;142;49m█", "\033[0;38;5;106;49m█", "\033[0;38;5;70;49m█", "\033[0;38;5;34;49m█"]
 #_BLOCKS = ["█", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
@@ -44,7 +44,7 @@ start_rgb = (0, 105, 250)
 end_rgb = (0, 196, 10)
 steps = 50
 # bias = 1.0: linear gradient
-bias = 2.5
+bias = 1
 for i in range(steps):
     t = i / (steps - 1)
     t = t ** bias
@@ -53,19 +53,19 @@ for i in range(steps):
     b = int(start_rgb[2] + (end_rgb[2] - start_rgb[2]) * t)
     gradient.append(f"\033[38;2;{r};{g};{b}m")
 
-# Add background color to first block
-factor = 0.1
+# Add background color to first block (for solid block type)
+factor = 0.2
 dr = int(max(0, min(255, start_rgb[0] * factor)))
 dg = int(max(0, min(255, start_rgb[1] * factor)))
 db = int(max(0, min(255, start_rgb[2] * factor)))
 _BLOCKS[0] = f"\033[38;2;{dr};{dg};{db}m{_BLOCKS[0]}"
+colors['BKG'] = f'\033[48;2;{dr};{dg};{db}m'
 
 
 _NUM_BLOCKS = len(_BLOCKS) - 1
 
 bar_width = os.get_terminal_size().columns // 3
 total_steps = bar_width * _NUM_BLOCKS
-
 
 
 def progress_percentage(perc, speed, eta):
@@ -78,22 +78,26 @@ def progress_percentage(perc, speed, eta):
     full_blocks = filled_steps // _NUM_BLOCKS
     remainder = filled_steps % _NUM_BLOCKS
 
-    #if remainder > 0 and full_blocks < bar_width:
-    #    bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[remainder]}{_BLOCKS[0] * (bar_width - full_blocks - 1)}"
-    #else:
-    #    bar = f"{_BLOCKS[-1] * full_blocks}{_BLOCKS[0] * (bar_width - full_blocks)}"
-
     fb = []
     for i in range(full_blocks):
         color_idx = int((i / full_blocks) * (len(gradient) - 1))
-        #color_idx = min(color_idx, len(GRADIENT) - 1)
         fb.append(f"{gradient[color_idx]}{_BLOCKS[-1]}{colors['END']}")
-    #fb = f"{GRADIENT[color_idx]}{_BLOCKS[-1] * full_blocks}{colors['END']}"
 
-    # Print full blocks first, then remainder is the last rising block, then empty spaces with dark blue backgroud
-    bar = f"{"".join(fb)}{colors['WHTE']}{_BLOCKS[remainder]}{colors['END']}{_BLOCKS[0] * (bar_width - full_blocks - 1)}{colors['END']}"
+    bar_parts = list(fb)
+    if remainder and full_blocks < bar_width:
+        bar_parts.append(f"\033[38;2;{end_rgb[0]};{end_rgb[1]};{end_rgb[2]}m"
+            f"{colors['BKG']}{_BLOCKS[remainder]}{colors['END']}")
 
-    sys.stdout.write(f"\r{bar} ┋ {colors['YEL']}{perc:5.2f}%{colors['END']} ┋ {colors['RED']}{speed}MB/s{colors['END']} ┋ {colors['PURP']}{eta[0]}m {eta[1]}s{colors['END']}{colors['CLEAR']}")
+    empty_blocks = bar_width - full_blocks - (1 if remainder else 0)
+    bar_parts.append(_BLOCKS[0] * empty_blocks)
+
+    bar = "".join(bar_parts) + colors['END']
+
+    sys.stdout.write(f"\r{bar} | {colors['YEL']}{perc:5.2f}%{colors['END']} "
+    f"| {colors['RED']}{speed}MB/s{colors['END']} | "
+    f"{colors['PURP']}{eta[0]}m {eta[1]}s{colors['END']}{colors['CLEAR']} "
+    f"| {bar_width},{full_blocks},{filled_steps},{remainder}"
+    )
     sys.stdout.flush()
 
 
@@ -132,8 +136,8 @@ def copyfileobj(fsrc, fdst, total, length=chunk):
             last_update2 = elap_total
 
 
-    progress_percentage(total, f"{(speed / 1048576):5.2f}", (m, s))
-    print(f"\n{round(total / 1048576,3)}MB copied in {round(elap_total,3)}s")
+    progress_percentage(100.0, f"{(speed / 1048576):5.2f}", (m, s))
+    print(f"\n{round(total / 1048576,3)}MB copied in {round(elap_total,3)}s, {round((total / elap_total) / 1048576,1)}MB/s avg")
 
 
 def copyfile(src, dst, *, follow_symlinks=True):
@@ -163,7 +167,7 @@ def copyfile(src, dst, *, follow_symlinks=True):
         with open(src, "rb") as fsrc:
             with open(dst, "wb") as fdst:
                 copyfileobj(fsrc, fdst, total=size)
-    return dst
+    #return dst
 
 
 def copy_with_progress(src, dst, *, follow_symlinks=True):
@@ -172,9 +176,21 @@ def copy_with_progress(src, dst, *, follow_symlinks=True):
         src: source path as string
         dst: destination path as string
     """
-    print(f"Copying {src} -> {dst}")
-    copyfile(src, dst, follow_symlinks=follow_symlinks)
-    shutil.copymode(src, dst)
+    # Copy is file does not exist
+    if not os.path.isfile(dst):
+        print(f"Copying {src} -> {dst}")
+        copyfile(src, dst, follow_symlinks=follow_symlinks)
+        shutil.copymode(src, dst)
+    else:
+        # Check is src and dst are same size
+        if os.path.getsize(src) == os.path.getsize(dst):
+            #print(f'{dst} ✅')
+            return
+        else:
+            # Copy if not same size
+            print(f"Copying {src} -> {dst}")
+            copyfile(src, dst, follow_symlinks=follow_symlinks)
+            shutil.copymode(src, dst)
 
 
 def folderCopy(r, s, dst):
